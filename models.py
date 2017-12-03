@@ -7,6 +7,7 @@ import utils
 
 dtype = utils.DTYPE
 
+gpu_device = '/gpu:0'
 
 class LR:
     def __init__(self, input_dim=None, output_dim=1, init_path=None, opt_algo='gd', learning_rate=1e-2,
@@ -786,7 +787,8 @@ class PNN2:
 
 class XNN:
     def __init__(self, layer_sizes=None, layer_acts=None, layer_keeps=None, layer_l2=None, interaction_l2=None,
-                 init_path=None, opt_algo='gd', learning_rate=1e-2, random_seed=None,batch_size=None,gate_type='mul',norm_type='l2'):
+                 init_path=None, opt_algo='gd', learning_rate=1e-2, random_seed=None, batch_size=None, gate_type='mul', norm_type='l2',
+                 topk_pair=10, topk_triple=10):
         init_vars = []
         num_inputs = len(layer_sizes[0])
         factor_order = layer_sizes[1]
@@ -796,8 +798,8 @@ class XNN:
             init_vars.append(('w0_%d' % i, [layer_input, layer_output], 'tnormal', dtype))
             init_vars.append(('b0_%d' % i, [layer_output], 'zero', dtype))
         init_vars.append(('w1', [num_inputs * factor_order, layer_sizes[2]], 'tnormal', dtype))
-        init_vars.append(('w2', [num_inputs * factor_order, layer_sizes[2]], 'tnormal', dtype))
-        init_vars.append(('w3', [num_inputs * factor_order, layer_sizes[2]], 'tnormal', dtype))
+        init_vars.append(('w2', [topk_pair * factor_order, layer_sizes[2]], 'tnormal', dtype))
+        init_vars.append(('w3', [topk_triple* factor_order, layer_sizes[2]], 'tnormal', dtype))
         init_vars.append(('b1', [layer_sizes[2]], 'zero', dtype))
         for i in range(2, len(layer_sizes) - 1):
             layer_input = layer_sizes[i]
@@ -808,80 +810,70 @@ class XNN:
         with self.graph.as_default():
             if random_seed is not None:
                 tf.set_random_seed(random_seed)
-            self.X = [tf.sparse_placeholder(dtype) for i in range(num_inputs)]
-            self.y = tf.placeholder(dtype)
-            self.vars = utils.init_var_map(init_vars, init_path)
-            w0 = [self.vars['w0_%d' % i] for i in range(num_inputs)]
-            b0 = [self.vars['b0_%d' % i] for i in range(num_inputs)]
+            with tf.device(gpu_device):
+                self.X = [tf.sparse_placeholder(dtype) for i in range(num_inputs)]
+                self.y = tf.placeholder(dtype)
+                self.vars = utils.init_var_map(init_vars, init_path)
+                w0 = [self.vars['w0_%d' % i] for i in range(num_inputs)]
+                b0 = [self.vars['b0_%d' % i] for i in range(num_inputs)]
             xw = [tf.sparse_tensor_dense_matmul(self.X[i], w0[i]) for i in range(num_inputs)]
-            #print('shape of xw[0]')
-            #print(xw[0].shape)
-            x = tf.concat([xw[i] + b0[i] for i in range(num_inputs)], 1)#bias removal
-            embedX = tf.stack([xw[i] + b0[i] for i in range(num_inputs)], 1)
-            #print('shape of embX')
-            #print(embedX.shape)
-            #print('shape of x')
-            #print(x.shape)
-            l = tf.nn.dropout(
-                utils.activate(x, layer_acts[0]),
-                layer_keeps[0])
-            w1 = self.vars['w1']
-            w2 = self.vars['w2']
-            w3 = self.vars['w3']
-            b1 = self.vars['b1']
-            #z = tf.reduce_sum(tf.reshape(l, [-1, num_inputs, factor_order]), 1)
-            #compute interactions
-            first_indices, second_indices = get_pair_indices(num_inputs)
-            interaction_2 = interaction(embedX,embedX, num_inputs,
-                                      num_inputs, first_indices,
-                                      second_indices, gate_type,
-                                      norm_type)
-            #print('shape of inter2')
-            #print(interaction_2.shape)
-            inter_2_vec = tf.reshape(interaction_2,[-1,num_inputs* factor_order])
-            #combined = tf.concat([x, interaction_2],1)
-            interaction_3 = interaction(embedX,interaction_2, num_inputs,
-                                      num_inputs, first_indices,
-                                      second_indices, gate_type,
-                                      norm_type)
-            inter_3_vec = tf.reshape(interaction_3,[-1,num_inputs* factor_order])
-            #encoded = tf.reshape(embed, [batch_size, -1])
-            #encoded = tf.concat([encoded, tf.reshape(embed, [batch_size, -1])],1)
-            
-            l = tf.nn.dropout(
-                utils.activate(
-                    tf.matmul(l, w1) + tf.matmul(inter_2_vec, w2) + tf.matmul(inter_3_vec, w3)+b1,
-                    layer_acts[1]),
-                layer_keeps[1])
-
-            for i in range(2, len(layer_sizes) - 1):
-                wi = self.vars['w%d' % i]
-                bi = self.vars['b%d' % i]
+            with tf.device(gpu_device):
+                x = tf.concat([xw[i] + b0[i] for i in range(num_inputs)], 1)#bias removal
+                embedX = tf.stack([xw[i] + b0[i] for i in range(num_inputs)], 1)
+                l = tf.nn.dropout(
+                    utils.activate(x, layer_acts[0]),
+                    layer_keeps[0])
+                w1 = self.vars['w1']
+                w2 = self.vars['w2']
+                w3 = self.vars['w3']
+                b1 = self.vars['b1']
+                #compute interactions
+                first_indices, second_indices = get_pair_indices(num_inputs, num_inputs)
+                interaction_2 = interaction(embedX, embedX,
+                                          topk_pair, first_indices,
+                                          second_indices, gate_type,
+                                          norm_type)
+                inter_2_vec = tf.reshape(interaction_2, [-1, topk_pair * factor_order])
+                first_indices, second_indices = get_pair_indices(num_inputs, topk_pair)
+                interaction_3 = interaction(embedX, interaction_2,
+                                          topk_triple, first_indices,
+                                          second_indices, gate_type,
+                                          norm_type)
+                inter_3_vec = tf.reshape(interaction_3, [-1, topk_triple * factor_order])
+                
                 l = tf.nn.dropout(
                     utils.activate(
-                        tf.matmul(l, wi) + bi,
-                        layer_acts[i]),
-                    layer_keeps[i])
-            #print(l.shape)
-            self.y_prob = tf.sigmoid(l)
-            #print(self.y_prob.shape)
-            self.loss = tf.reduce_mean(
-                tf.nn.sigmoid_cross_entropy_with_logits(logits=l, labels=self.y))
-            if layer_l2 is not None:
-                # for i in range(num_inputs):
-                self.loss += layer_l2[0] * tf.nn.l2_loss(tf.concat(xw, 1))
-                for i in range(1, len(layer_sizes) - 1):
+                        tf.matmul(l, w1) + tf.matmul(inter_2_vec, w2) + tf.matmul(inter_3_vec, w3) + b1,
+                        layer_acts[1]),
+                    layer_keeps[1])
+
+                for i in range(2, len(layer_sizes) - 1):
                     wi = self.vars['w%d' % i]
-                    # bi = self.vars['b%d' % i]
-                    self.loss += layer_l2[i] * tf.nn.l2_loss(wi)
-            if interaction_l2 is not None: #TODO: add regularization
-                pass
-            self.optimizer = utils.get_optimizer(opt_algo, learning_rate, self.loss)
-        
-            config = tf.ConfigProto()
+                    bi = self.vars['b%d' % i]
+                    l = tf.nn.dropout(
+                        utils.activate(
+                            tf.matmul(l, wi) + bi,
+                            layer_acts[i]),
+                        layer_keeps[i])
+                self.y_prob = tf.sigmoid(l)
+                self.loss = tf.reduce_mean(
+                    tf.nn.sigmoid_cross_entropy_with_logits(logits=l, labels=self.y))
+                if layer_l2 is not None:
+                    self.loss += layer_l2[0] * tf.nn.l2_loss(tf.concat(xw, 1))
+                    for i in range(1, len(layer_sizes) - 1):
+                        wi = self.vars['w%d' % i]
+                        # bi = self.vars['b%d' % i]
+                        self.loss += layer_l2[i] * tf.nn.l2_loss(wi)
+                if interaction_l2 is not None: #TODO: add regularization
+                    pass
+                self.optimizer = utils.get_optimizer(opt_algo, learning_rate, self.loss)
+            
+            config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
             config.gpu_options.allow_growth = True
+            config.log_device_placement=False
             self.sess = tf.Session(config=config)
-            tf.global_variables_initializer().run(session=self.sess)
+            with tf.device(gpu_device):
+                tf.global_variables_initializer().run(session=self.sess)
 
     def run(self, fetches, X=None, y=None):
         feed_dict = {}

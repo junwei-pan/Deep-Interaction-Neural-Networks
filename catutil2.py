@@ -8,8 +8,8 @@ from scipy.sparse import coo_matrix
 
 DTYPE = tf.float64
 
-FIELD_SIZES = [0] * 26
-with open('/home/ysun1/tensorflow-starter-kit_trunk/product-nets-master/data_cretio/featindex_thres1M20.txt') as fin:
+FIELD_SIZES = [0] * 15
+with open('/tmp/jwpan/data_yahoo/dataset2/featindex_25m_thres10.txt') as fin:
     for line in fin:
         line = line.strip().split(':')
         if len(line) > 1:
@@ -70,11 +70,11 @@ def flat_highway_gate_layer(first, second, carry_bias=0.,
     return y.reshape(X_shape)
 
 
-def get_pair_indices(sequence_length): # handles a single sample, this works.
+def get_pair_indices(len1, len2): # handles a single sample, this works.
     """get indices for each pair in a sample x"""
     pair_indices = []
-    for i in range(sequence_length):
-        for j in range(i + 1, sequence_length):
+    for i in range(len1):
+        for j in range(i+1, len2):
             pair_indices.append([i, j])
     return (np.array([e[0] for e in pair_indices]),np.array([e[1] for e in pair_indices]))
 
@@ -129,7 +129,6 @@ def  _getpartition(max_indices,n):
     return l
 
 def pair_wise_interaction_and_max_pooling(X1, X2, k,
-                                          sequence_length,
                                           first_indices,
                                           second_indices,
                                           gate_type='sum',
@@ -139,8 +138,8 @@ def pair_wise_interaction_and_max_pooling(X1, X2, k,
         input X: embedding inputs or max-pooling outputs
         output: pair wise interactions and max-pooling results
     """
-    first_element = tf.transpose(tf.gather(tf.transpose(X1,[1,0,2]), first_indices),[1,0,2])
-    second_element = tf.transpose(tf.gather(tf.transpose(X2,[1,0,2]), second_indices),[1,0,2])
+    first_element = tf.transpose(tf.gather(tf.transpose(X1, [1,0,2]), first_indices),[1,0,2])
+    second_element = tf.transpose(tf.gather(tf.transpose(X2, [1,0,2]), second_indices),[1,0,2])
     interactions = _gate(first_element, second_element, gate_type)
     norms = _norm(interactions, norm_type)
     normvec = tf.reduce_sum(norms,0)
@@ -156,8 +155,7 @@ def pair_wise_interaction_and_max_pooling(X1, X2, k,
     return pooling_rst
 
 
-def interaction(X1, X2, k,#k is sequence_length.
-                    sequence_length,#WTF is sequence length? set to be 24, seems to be feature dimension
+def interaction(X1, X2, k, # k is sequence_length.
                     first_indices,
                     second_indices,
                     gate_type='sum',
@@ -166,13 +164,10 @@ def interaction(X1, X2, k,#k is sequence_length.
         input X: embedding inputs or max-pooling outputs
         output: Full connection rst after interactions and max-pooling
     """
-    #print(X1.shape)
-    #with tf.name_scope("interaction_and_pooling_layer_%d" % i):
-    rst = pair_wise_interaction_and_max_pooling(X1,X2, k, sequence_length,first_indices, second_indices)
-
+    rst = pair_wise_interaction_and_max_pooling(X1, X2, k, first_indices, second_indices)
     return rst
 
-def interaction2(left, right, k,#k is sequence_length.
+def interaction2(left, right, k, # k is sequence_length.
                     sequence_length,#WTF is sequence length? set to be 24, seems to be feature dimension
                     first_indices,
                     second_indices,
@@ -182,10 +177,7 @@ def interaction2(left, right, k,#k is sequence_length.
         input X: embedding inputs or max-pooling outputs
         output: Full connection rst after interactions and max-pooling
     """
-    #print(X1.shape)
-    #with tf.name_scope("interaction_and_pooling_layer_%d" % i):
-    rst = pair_wise_interaction_and_max_pooling2(left,right, k, sequence_length,first_indices, second_indices)
-
+    rst = pair_wise_interaction_and_max_pooling2(left, right, k, sequence_length, first_indices, second_indices)
     return rst
 
 def pair_wise_interaction_and_max_pooling2(left, right, k,
