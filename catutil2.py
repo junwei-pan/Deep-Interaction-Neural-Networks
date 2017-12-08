@@ -76,7 +76,7 @@ def get_pair_indices(len1, len2): # handles a single sample, this works.
     for i in range(len1):
         for j in range(i+1, len2):
             pair_indices.append([i, j])
-    return (np.array([e[0] for e in pair_indices]),np.array([e[1] for e in pair_indices]))
+    return (np.array([e[0] for e in pair_indices]), np.array([e[1] for e in pair_indices]))
 
 
 def get_batch_pair_indices(sequence_length):#handles batch
@@ -138,20 +138,17 @@ def pair_wise_interaction_and_max_pooling(X1, X2, k,
         input X: embedding inputs or max-pooling outputs
         output: pair wise interactions and max-pooling results
     """
-    first_element = tf.transpose(tf.gather(tf.transpose(X1, [1,0,2]), first_indices),[1,0,2])
-    second_element = tf.transpose(tf.gather(tf.transpose(X2, [1,0,2]), second_indices),[1,0,2])
+    print 'X1.get_shape()', X1.get_shape().as_list()
+    first_element = tf.transpose(tf.gather(tf.transpose(X1, [1,0,2]), first_indices), [1,0,2])
+    second_element = tf.transpose(tf.gather(tf.transpose(X2, [1,0,2]), second_indices), [1,0,2])
     interactions = _gate(first_element, second_element, gate_type)
+    # Get normalization value along axis 1.
     norms = _norm(interactions, norm_type)
-    normvec = tf.reduce_sum(norms,0)
-    inter_trans = tf.transpose(interactions,[1,0,2])
+    normvec = tf.reduce_sum(norms, 0)
     _, max_indices = tf.nn.top_k(normvec, k)
-    #pooling_indices = _get_max_pooling_indices(max_indices, k)
-    # print(pooling_indices.get_shape().as_list())
-    inter_trans = tf.transpose(interactions,[1,0,2])
-    #print(inter_trans.get_shape().as_list())
-    #print(max_indices.get_shape().as_list())
-    pooling_rst = tf.transpose(tf.gather(inter_trans, max_indices),[1,0,2])
-    #pooling_rst = tf.transpose(tf.dynamic_partition(inter_trans, _getpartition(max_indices),1),[1,0,2])
+    inter_trans = tf.transpose(interactions, [1,0,2])
+    pooling_rst = tf.transpose(tf.gather(inter_trans, max_indices), [1,0,2])
+    print 'pooling_rst.get_shape()', pooling_rst.get_shape().as_list()
     return pooling_rst
 
 

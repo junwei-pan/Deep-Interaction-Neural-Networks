@@ -797,8 +797,11 @@ class XNN:
             layer_output = factor_order
             init_vars.append(('w0_%d' % i, [layer_input, layer_output], 'tnormal', dtype))
             init_vars.append(('b0_%d' % i, [layer_output], 'zero', dtype))
+        # w1 connects the first-order layer to the final output
         init_vars.append(('w1', [num_inputs * factor_order, layer_sizes[2]], 'tnormal', dtype))
+        # w2 connects the second-order layer to the final output
         init_vars.append(('w2', [topk_pair * factor_order, layer_sizes[2]], 'tnormal', dtype))
+        # w3 connects the third-order layer to the final output
         init_vars.append(('w3', [topk_triple* factor_order, layer_sizes[2]], 'tnormal', dtype))
         init_vars.append(('b1', [layer_sizes[2]], 'zero', dtype))
         for i in range(2, len(layer_sizes) - 1):
